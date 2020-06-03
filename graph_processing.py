@@ -1,4 +1,6 @@
 import csv
+from heapq import heappush, heappop
+from itertools import count
 from lxml import etree as et
 from math import sin, cos, sqrt, atan2, radians
 import matplotlib.pyplot as plt
@@ -141,97 +143,36 @@ def set_weights(G,med_id,med_max_weight):
     #         G[node][m_id]['weight'] *= w  
     
 
-class MinNodeHeap:
-
-    def __init__(self,g={}):
-        self.heap = []
-        self.size = 0
-        self.g = g
-
-    def left_index(self,i):
-        return 2*i+1
-
-    def right_index(self,i):
-        return 2*i+2
-
-    def parent_index(self,i):
-        return (i-1)//2
-
-    def min_heapify(self,i):
-        l = self.left_index(i)
-        r = self.right_index(i)
-
-        if l < self.size and self.g[self.heap[l]]['weight'] < self.g[self.heap[i]]['weight']:
-            smallest = l
-        else:
-            smallest = i
-        if r < self.size and self.g[self.heap[r]]['weight'] < self.g[self.heap[smallest]]['weight']:
-            smallest = r
-        if smallest != i:
-            self.g[self.heap[i]]['index'], self.g[self.heap[smallest]]['index'] = self.g[self.heap[smallest]]['index'], self.g[self.heap[i]]['index']           
-            self.heap[i], self.heap[smallest] = self.heap[smallest], self.heap[i]
-            self.min_heapify(smallest)
-
-    def build_min_heap(self,_NodeView):
-        self.heap = [None for i in range(len(_NodeView))]
-        for elem in self.g:
-            self.heap[self.g[elem]['index']] = elem
-#         self.heap = list(_NodeView)
-        self.size = len(_NodeView)
-#         for i in range(len(_NodeView)//2,-1,-1):
-#             self.min_heapify(i)
-            
-    def extract_min(self):
-        if self.size < 1:
-            return None
-        _min = self.heap[0]
-        self.g[self.heap[self.size-1]]['index'] = self.g[self.heap[0]]['index']
-        self.heap[0] = self.heap[self.size-1]      
-        self.size -= 1
-        self.min_heapify(0)
-        return _min
-    
-    def decrease_key(self,_id,key):
-        i = self.g[_id]['index']
-        if key > self.g[_id]['weight']:
-            raise KeyError
-        self.g[_id]['weight'] = key
-        while (i > 0) and (self.g[self.heap[self.parent_index(i)]]['weight'] > self.g[self.heap[i]]['weight']):
-            self.g[self.heap[self.parent_index(i)]]['index'], self.g[self.heap[i]]['index'] = self.g[self.heap[i]]['index'], self.g[self.heap[self.parent_index(i)]]['index']
-            self.heap[self.parent_index(i)], self.heap[i] = self.heap[i], self.heap[self.parent_index(i)]
-            i = self.parent_index(i)
-
-            
-def initialize_single_sourse(G,_from):
-    g = {}
-    nodes_list = list(G.nodes).copy()
-    nodes_list.remove(_from)
-    for v_id, i in zip(nodes_list,range(1,len(G.nodes))):
-        g[v_id] = {'way': [], 'weight':float('inf'), 'index':i}
-    g[_from] = {'way':[_from], 'weight':0, 'index':0}
-    return g
-
-def relax(G,min_heap,_from,_to):
-    if min_heap.g[_to]['weight'] > min_heap.g[_from]['weight'] + G[_from][_to]['weight']:
-        key = min_heap.g[_from]['weight'] + G[_from][_to]['weight']
-        min_heap.decrease_key(_to,key)
-        min_heap.g[_to]['way'] = (min_heap.g[_from]['way']).copy()
-        min_heap.g[_to]['way'].append(_to)
-        
-def dijkstra(G,_from,to_list = 'empty'):
+def dijkstra(G,_from,to_list = 'empty', max_dist = None):
     if to_list == 'empty':
-        to_list = list(G.nodes)
-    g = initialize_single_sourse(G,_from)
-    finish = 0
-    nodes = MinNodeHeap(g)
-    nodes.build_min_heap(G.nodes)
-    while nodes.size > 0 and finish < len(to_list):
-        u = nodes.extract_min()
-        if to_list.count(u) > 0:
-            finish += 1
-        for v in G.successors(u):
-            relax(G,nodes,u,v)
-    return g
+        to_list = list(G.nodes())
+
+    c,target_count = count(),0
+    finish = len(to_list)
+    heap, checked = [], {}
+    checked[_from] = {'weight':0,'way':[_from]}
+    heappush(heap, (0, next(c), _from))
+    
+    while heap:
+        (d, _, v) = heappop(heap)
+        if v in to_list:
+            target_count += 1
+        if target_count == finish:
+            break
+        for u in G.successors(v):
+            _weight = checked[v]['weight'] + G[v][u]['weight']
+            if max_dist is not None:
+                if vu_dist > max_dist:
+                    continue
+            if u not in checked:
+                checked[u] = {'weight': _weight, 'way': checked[v]['way'] + [u]}
+                heappush(heap, (_weight, next(c), u))
+            elif _weight < checked[u]['weight']:
+                checked[u]['weight'] = _weight
+                heappush(heap, (_weight, next(c), u))
+                checked[u]['way'] = checked[v]['way'] + [u]
+
+    return checked
 
 def create_adj_list(G,filename = 'adj_list2.csv'):
     with open(filename,'w',newline='') as csv_file:
@@ -247,7 +188,6 @@ def write_dijkstra_csv(G,filename,from_list,to_list):
         f.write('from,to,way_weight,way\n')
         for _from in from_list:
             a = dijkstra(G,_from,to_list)
-            a = {k:v for k,v in a.items() if v["weight"] != float('inf')}
             for _to in to_list:
                 if _to in a.keys():
                     s = _from + ',' + _to + ',' + str(a[_to]['weight'])
@@ -367,6 +307,7 @@ def search_minmax_way_there_and_back(min_ways,from_list,to_list):
                         minmax_way = [obj,to,weight]
       
     if  obj != 'start':
+        to = minmax_way[1]
         minmax_way.append(min_ways[obj][to]['way'])
         minmax_way.append(min_ways[to][obj]['way'])
         minmax_way = [minmax_way]
