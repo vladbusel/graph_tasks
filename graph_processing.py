@@ -7,20 +7,25 @@ from random import random, sample
 import numpy as np
 
 #on file upload
-def create_graph_from_osm(osm_file='orig_graph.osm'): 
+def create_graph_from_osm(obj, osm_file): 
     f = open('houses.txt', 'r')
     houses_id = [house[:-1] for house in f.readlines()]
     f.close()
-    f = open('med.txt', 'r')
-    med_id = [med[:-1] for med in f.readlines()]   
-    f.close()
-
-    # f = open('firewatch.txt', 'r')
-    # firewatch_id = [firewatch[:-1] for firewatch in f.readlines()]   
-    # f.close()
-    # f = open('market.txt', 'r')
-    # market_id = [market[:-1] for market in f.readlines()]   
-    # f.close()
+    obj_id = []
+    if obj == 'medicine':
+        f = open('med.txt', 'r')
+        obj_id = [med[:-1] for med in f.readlines()]   
+        f.close()
+    elif obj == 'firewatch':
+        f = open('firewatch.txt', 'r')
+        obj_id = [firewatch[:-1] for firewatch in f.readlines()]   
+        f.close()
+    elif obj == 'market':
+        f = open('market.txt', 'r')
+        obj_id = [market[:-1] for market in f.readlines()]   
+        f.close()
+    else:
+        print('wrong structure')
 
     G = nx.DiGraph()
     context = et.iterparse(osm_file, events=('end',), tag='node')
@@ -113,33 +118,16 @@ def create_graph_from_osm(osm_file='orig_graph.osm'):
 
     G.remove_nodes_from(remove_nodes)
 
-    return G,houses_id,med_id,nodes
-    #return G,houses_id,med_id,firewatch_id,market_id,nodes
+    return G,houses_id,obj_id,nodes
 
 #on params change
-#def set_weights(G,houses_id,med_id,firewatch_id,market_id, h_max_weight, med_max_weight, fw_max_weight, market_max_weight):
-def set_weights(G,med_id,med_max_weight):
-    for m_id in med_id:
-        w = 1 + random()*(med_max_weight-1)
-        for node in G.successors(m_id):
-            G[m_id][node]['weight'] *= w
-        for node in G.predecessors(m_id):
-            G[node][m_id]['weight'] *= w    
-    
-    # for fw_id in firewatch_id:
-    #     w = 1 + random()*(fw_max_weight-1)
-    #     for node in G.successors(fw_id):
-    #         G[fw_id][node]['weight'] *= w
-    #     for node in G.predecessors(fw_id):
-    #         G[node][fw_id]['weight'] *= w
-        
-    # for m_id in market_id:
-    #     w = 1 + random()*(market_max_weight-1)
-    #     for node in G.successors(m_id):
-    #         G[m_id][node]['weight'] *= w
-    #     for node in G.predecessors(m_id):
-    #         G[node][m_id]['weight'] *= w  
-    
+def set_weights(G,obj_id,obj_max_weight):
+    for o_id in obj_id:
+        w = 1 + random()*(obj_max_weight-1)
+        for node in G.successors(o_id):
+            G[o_id][node]['weight'] *= w
+        for node in G.predecessors(o_id):
+            G[node][o_id]['weight'] *= w    
 
 class MinNodeHeap:
 
@@ -454,141 +442,92 @@ def draw_graph(G,nodes,filename=''):
         plt.savefig(filename,dpi=1000)
         fig.clear()
 
-
-
-
-#tasks
-def draw_clear_graph(osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
+def load_object(G,houses_id,obj_id,nodes,obj,osm_file='orig_graph.osm'):
+    print('loading')
+    G,houses_id,obj_id,nodes = create_graph_from_osm(obj,osm_file)
     draw_graph(G,nodes)
 
-def draw_min_to_obj(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
+def run_dijkstra(G,from_list,to_list):
+    print('start')
     write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
     write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+    print('calculated')
+
+def run_culc(G,houses_id,obj_id,from_list,to_list,h_count,obj_count,obj_weight):
+    set_weights(G,obj_id,obj_weight)
+    from_list = sample(houses_id, h_count)
+    to_list = sample(obj_id, obj_count)
+    print('start')
+    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
+    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+    print('calculated')
+    return from_list, to_list
+    
+#tasks
+def draw_clear_graph(G,nodes):
+    draw_graph(G,nodes)
+
+def draw_min_to_obj(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     min_oneways1 = search_min_oneways(min_ways,from_list,to_list)
     draw_ways_on_graph(G,nodes,min_oneways1)
 
-def draw_min_from_obj(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_min_from_obj(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     min_oneways2 = search_min_oneways(min_ways,to_list,from_list)
     draw_ways_on_graph(G,nodes,min_oneways2)
 
-def draw_min_there_and_back(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_min_there_and_back(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     min_ways_there_and_back = search_min_ways_there_and_back(min_ways,from_list,to_list)
     draw_ways_on_graph(G,nodes,min_ways_there_and_back)
 
-def draw_close_to_obj(h_count, obj_count, obj_weight, distance, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_close_to_obj(G,nodes,from_list,to_list, distance):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     near_ways1 = search_near_ways(min_ways,distance,from_list,to_list)
     draw_ways_on_graph(G,nodes,near_ways1)
     
-def draw_close_from_obj(h_count, obj_count, obj_weight, distance, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_close_from_obj(G,nodes,from_list,to_list, distance):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     near_ways2 = search_near_ways(min_ways,distance,from_list,to_list)
     draw_ways_on_graph(G,nodes,near_ways2)
 
-def draw_close_there_and_back(h_count, obj_count, obj_weight, distance, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_close_there_and_back(G,nodes,from_list,to_list, distance):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     near_ways_there_and_back = search_near_ways_there_and_back(min_ways,distance,from_list,to_list)
     draw_ways_on_graph(G,nodes,near_ways_there_and_back)
 
-def draw_minmax_to_obj(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_minmax_to_obj(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     minmax_way1 = search_minmax_way(min_ways,from_list,to_list)
     draw_ways_on_graph(G,nodes,minmax_way1)
 
-def draw_minmax_from_obj(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_minmax_from_obj(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     minmax_way2 = search_minmax_way(min_ways,from_list,to_list)
     draw_ways_on_graph(G,nodes,minmax_way2)
 
-def draw_minmax_there_and_back(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_minmax_there_and_back(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     minmax_way_there_and_back = search_minmax_way_there_and_back(min_ways,from_list,to_list)
     draw_ways_on_graph(G,nodes,minmax_way_there_and_back)
 
-def draw_min_distance(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_min_distance(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     min_distance_to_node,min_distance,min_distance_way = search_min_distance_to_node(min_ways,from_list,to_list,sum)
     draw_ways_on_graph(G,nodes,min_distance_way)
 
-def draw_min_weight(h_count, obj_count, obj_weight, osm_file='orig_graph.osm'):
-    G,houses_id,med_id,nodes = create_graph_from_osm(osm_file)
-    set_weights(G,med_id,obj_weight)
-    from_list = sample(houses_id, h_count)
-    to_list = sample(med_id, obj_count)  
-    write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
-    write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
+def draw_min_weight(G,nodes,from_list,to_list):
     min_ways = read_dijkstra_csv('dijkstra1')
     min_ways.update(read_dijkstra_csv('dijkstra2'))
     min_weight_to_node,min_weight,min_weight_way = search_min_weight_to_node(min_ways,from_list,to_list,sum)
