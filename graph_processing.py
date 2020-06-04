@@ -138,18 +138,19 @@ def set_weights(G,obj_id,obj_max_weight):
 def dijkstra(G,_from,to_list = 'empty', max_dist = None):
     if to_list == 'empty':
         to_list = list(G.nodes())
-
-    c,target_count = count(),0
+    
+    push, pop = heappush, heappop  
+    c,finished_to_nodes = count(),to_list.copy()
     finish = len(to_list)
     heap, checked = [], {}
     checked[_from] = {'weight':0,'way':[_from]}
-    heappush(heap, (0, next(c), _from))
+    push(heap, (0, next(c), _from))
     
     while heap:
-        (d, _, v) = heappop(heap)
-        if v in to_list:
-            target_count += 1
-        if target_count == finish:
+        (d, _, v) = pop(heap)
+        if v in finished_to_nodes:
+            finished_to_nodes.remove(v)
+        if finished_to_nodes == []:
             break
         for u in G.successors(v):
             _weight = checked[v]['weight'] + G[v][u]['weight']
@@ -158,10 +159,10 @@ def dijkstra(G,_from,to_list = 'empty', max_dist = None):
                     continue
             if u not in checked:
                 checked[u] = {'weight': _weight, 'way': checked[v]['way'] + [u]}
-                heappush(heap, (_weight, next(c), u))
+                push(heap, (_weight, next(c), u))
             elif _weight < checked[u]['weight']:
                 checked[u]['weight'] = _weight
-                heappush(heap, (_weight, next(c), u))
+                push(heap, (_weight, next(c), u))
                 checked[u]['way'] = checked[v]['way'] + [u]
 
     return checked
@@ -353,7 +354,7 @@ def search_min_weight_to_node(min_ways,from_list,to_list, func = sum):
     return obj,min_sum,ways
 
 
-def draw_ways_on_graph(G,nodes,ways,filename=''):
+def draw_ways_on_graph(G,nodes,ways,filename='', draw_network=True, way_color='b', node_size=15):
     if type(ways) == dict:
         ways = [way['way'] for way in ways.values()]
     elif type(ways) == list:
@@ -369,11 +370,12 @@ def draw_ways_on_graph(G,nodes,ways,filename=''):
     
     fig = plt.gcf()
     fig.set_size_inches(16,22,forward = True)
-    nx.draw_networkx(G, pos = nodes, node_size = 0, width = 0.1, with_labels = False, arrows  = False)
+    if(draw_network):
+        nx.draw_networkx(G, pos = nodes, node_size = 0, width = 0.1, with_labels = False, arrows  = False)
   
-    nx.draw_networkx_edges(G.subgraph(start+nodedict),pos = nodes,edgelist = edgelist,edge_color='b',width = 0.4,arrows  = False)
-    nx.draw_networkx_nodes(G.subgraph(start),pos = nodes,nodelist = start,node_color='g',node_size=15)
-    nx.draw_networkx_nodes(G.subgraph(end),pos = nodes,nodelist = end,node_color='b',node_size=15)
+    nx.draw_networkx_edges(G.subgraph(start+nodedict),pos = nodes,edgelist = edgelist,edge_color=way_color,width = 0.4,arrows  = False)
+    nx.draw_networkx_nodes(G.subgraph(start),pos = nodes,nodelist = start,node_color='g',node_size=node_size)
+    nx.draw_networkx_nodes(G.subgraph(end),pos = nodes,nodelist = end,node_color='b',node_size=node_size)
     
     if filename != '':
         plt.savefig(filename,dpi=1000)
@@ -458,12 +460,12 @@ def get_cluster_cash_and_dendrogram(matrix):
     dn = dendrogram(cluster_cash)
     return cluster_cash, dn
 
-def get_cluster_info (cluster_index, cluster_cash, cluster_items_id, nodes_data,obj_id, houses_id):    
+def get_cluster_info (G,cluster_index, cluster_cash, cluster_items_id, nodes_data,obj_id, houses_id):    
     cluster_nodes = cluster_to_id_list(cluster_index, cluster_cash, cluster_items_id, len(cluster_cash) + 1)
     str_cluster_nodes = list(map(lambda x: str(x),cluster_nodes))
     list_with_coords = list(map(lambda x: {'x': float(nodes_data[str(x)][1]), 'y': float(nodes_data[str(x)][0])} ,cluster_nodes))
     centroid = get_centroid_coords(list_with_coords)
-    centroid_id = find_nearest_node(centroid,houses_id,obj_id)
+    centroid_id = find_nearest_node(G,nodes_data,centroid,houses_id,obj_id)
     tree, tree_sum, tree_min_sum = get_tree_and_sum(G, str(centroid_id), str_cluster_nodes)
     return {'tree': tree, 'tree_sum':tree_sum, 'tree_min_sum':tree_min_sum, 'centroid_id':centroid_id, 'nodes': str_cluster_nodes}
 
@@ -474,26 +476,26 @@ def open_next_cluster(cluster_cash, clusters, count_of_values):
     clusters.append(cluster_cash[int(cluster_to_open) - count_of_values, 1] )
     return clusters
 
-def find_nearest_node(coords_node, houses_id, obj_id):
+def find_nearest_node(G,nodes,coords_node, houses_id, obj_id):
     buffer = []
     min_dist = float('inf')
     for node_id  in G.nodes():
         check_min = (nodes[node_id][0] - coords_node[0])**2 + (nodes[node_id][1] - coords_node[1])**2
-        if check_min < min_dist and node_id not in houses_id and houses_id not in obj_id:
+        if check_min < min_dist and node_id not in houses_id and node_id not in obj_id:
             min_dist = check_min
             buffer.append(node_id)
             if len(buffer) > len(houses_id) + len(obj_id) + 5:
                 buffer = buffer[2:]
     return(buffer[-1])     
 
-def get_clusters_info_task(cluster_cash, some_houses, nodes, obj_id):
+def get_clusters_info_task(G,cluster_cash, some_houses, nodes, obj_id):
     clusters = [int(cluster_cash[-1,0]), int(cluster_cash[-1,1])]
-    clusters_info_2 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, some_houses), clusters))
+    clusters_info_2 = list(map(lambda x: get_cluster_info(G,x, cluster_cash, some_houses, nodes, obj_id, some_houses), clusters))
     clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
-    clusters_info_3 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, houses_id), clusters))
+    clusters_info_3 = list(map(lambda x: get_cluster_info(G,x, cluster_cash, some_houses, nodes, obj_id, some_houses), clusters))
     clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
     clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
-    clusters_info_5 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, houses_id), clusters))
+    clusters_info_5 = list(map(lambda x: get_cluster_info(G,x, cluster_cash, some_houses, nodes, obj_id, some_houses), clusters))
     return clusters_info_2, clusters_info_3,clusters_info_5
 
 def draw_clusters(G,nodes, clusters_info, filename=''):
