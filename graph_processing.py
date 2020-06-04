@@ -1,5 +1,6 @@
 import csv
 from heapq import heappush, heappop
+from functools import reduce
 from itertools import count
 from lxml import etree as et
 from math import sin, cos, sqrt, atan2, radians
@@ -7,6 +8,9 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from random import random, sample
 import numpy as np
+import osmnx as ox
+from scipy.cluster.hierarchy import dendrogram, linkage
+import collections
 
 #on file upload
 def create_graph_from_osm(obj, osm_file): 
@@ -404,72 +408,133 @@ def run_culc(G,houses_id,obj_id,from_list,to_list,h_count,obj_count,obj_weight):
     print('calculated')
     return from_list, to_list
     
-#tasks
-def draw_clear_graph(G,nodes):
-    draw_graph(G,nodes)
-
-def draw_min_to_obj(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    min_oneways1 = search_min_oneways(min_ways,from_list,to_list)
-    draw_ways_on_graph(G,nodes,min_oneways1)
-
-def draw_min_from_obj(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    min_oneways2 = search_min_oneways(min_ways,to_list,from_list)
-    draw_ways_on_graph(G,nodes,min_oneways2)
-
-def draw_min_there_and_back(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    min_ways_there_and_back = search_min_ways_there_and_back(min_ways,from_list,to_list)
-    draw_ways_on_graph(G,nodes,min_ways_there_and_back)
-
-def draw_close_to_obj(G,nodes,from_list,to_list, distance):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    near_ways1 = search_near_ways(min_ways,distance,from_list,to_list)
-    draw_ways_on_graph(G,nodes,near_ways1)
+#clusters
+def get_tree_and_sum(G, _from, target_list):
+    tree = dijkstra(G, _from, target_list)
+    filtered_tree = {k:v for k,v in tree.items() if v["weight"] != float('inf') and k in target_list}
+    tree_sum = sum(list(map(lambda x: x['weight'], list(filtered_tree.values()))))
     
-def draw_close_from_obj(G,nodes,from_list,to_list, distance):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    near_ways2 = search_near_ways(min_ways,distance,from_list,to_list)
-    draw_ways_on_graph(G,nodes,near_ways2)
+    edge_set = list()
+    for target in filtered_tree:
+        node_list = filtered_tree[target]['way']
+        for node_number in range(len(node_list)-1):           
+            new_edge = [node_list[node_number], node_list[node_number + 1]]
+            if new_edge not in edge_set:
+                edge_set.append(new_edge)
+    tree_small_sum = sum(list(map(lambda x: G[x[0]][x[1]]['weight'], edge_set)))
+    return filtered_tree, tree_sum, tree_small_sum
 
-def draw_close_there_and_back(G,nodes,from_list,to_list, distance):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    near_ways_there_and_back = search_near_ways_there_and_back(min_ways,distance,from_list,to_list)
-    draw_ways_on_graph(G,nodes,near_ways_there_and_back)
+def get_cluster_matrix(G,some_houses):
+    matrix = []
+    for house_id in some_houses:
+        pre_vector = dijkstra(G, house_id, some_houses)
+        filtered_vector = {k:v for k,v in pre_vector.items() if v["weight"] != float('inf') and k in some_houses}
+        sorted_vector = collections.OrderedDict(sorted(filtered_vector.items()))
+        vector = list(map(lambda x: x['weight'], list(sorted_vector.values())))
+        matrix.append(vector)
+    return matrix
 
-def draw_minmax_to_obj(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    minmax_way1 = search_minmax_way(min_ways,from_list,to_list)
-    draw_ways_on_graph(G,nodes,minmax_way1)
+def cluster_to_id_list(cluster_index, cluster_cash, list_id, count_of_values):
+    cluster_indexes = [cluster_index]
+    while len(list(filter(lambda x: x >= count_of_values, cluster_indexes))) > 0:
+        cluster_to_open = list(filter(lambda x: x >= count_of_values, cluster_indexes))
+        
+        for cluster in cluster_to_open:
+            cluster_indexes.remove(cluster)
+            cluster_indexes.append(cluster_cash[int(cluster) - count_of_values, 0] )
+            cluster_indexes.append(cluster_cash[int(cluster) - count_of_values, 1] )
+            
+    return list(map(lambda x: int(list_id[int(x)]), cluster_indexes))
 
-def draw_minmax_from_obj(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    minmax_way2 = search_minmax_way(min_ways,from_list,to_list)
-    draw_ways_on_graph(G,nodes,minmax_way2)
+def get_centroid_coords(cluster_nodes):
+    x = sum(list(map(lambda x: x['x'], cluster_nodes))) / len(cluster_nodes)
+    y = sum(list(map(lambda x: x['y'], cluster_nodes))) / len(cluster_nodes)
+    return y, x
 
-def draw_minmax_there_and_back(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    minmax_way_there_and_back = search_minmax_way_there_and_back(min_ways,from_list,to_list)
-    draw_ways_on_graph(G,nodes,minmax_way_there_and_back)
+def get_cluster_cash_and_dendrogram(matrix):
+    matrix_np = np.array(matrix)
+    cluster_cash = linkage(matrix_np, 'complete')
+    fig = plt.figure(figsize=(25, 20))
+    dn = dendrogram(cluster_cash)
+    return cluster_cash, dn
 
-def draw_min_distance(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    min_distance_to_node,min_distance,min_distance_way = search_min_distance_to_node(min_ways,from_list,to_list,sum)
-    draw_ways_on_graph(G,nodes,min_distance_way)
+def get_cluster_info (cluster_index, cluster_cash, cluster_items_id, nodes_data,obj_id, houses_id):    
+    cluster_nodes = cluster_to_id_list(cluster_index, cluster_cash, cluster_items_id, len(cluster_cash) + 1)
+    str_cluster_nodes = list(map(lambda x: str(x),cluster_nodes))
+    list_with_coords = list(map(lambda x: {'x': float(nodes_data[str(x)][1]), 'y': float(nodes_data[str(x)][0])} ,cluster_nodes))
+    centroid = get_centroid_coords(list_with_coords)
+    centroid_id = find_nearest_node(centroid,houses_id,obj_id)
+    tree, tree_sum, tree_min_sum = get_tree_and_sum(G, str(centroid_id), str_cluster_nodes)
+    return {'tree': tree, 'tree_sum':tree_sum, 'tree_min_sum':tree_min_sum, 'centroid_id':centroid_id, 'nodes': str_cluster_nodes}
 
-def draw_min_weight(G,nodes,from_list,to_list):
-    min_ways = read_dijkstra_csv('dijkstra1')
-    min_ways.update(read_dijkstra_csv('dijkstra2'))
-    min_weight_to_node,min_weight,min_weight_way = search_min_weight_to_node(min_ways,from_list,to_list,sum)
-    draw_ways_on_graph(G,nodes,min_weight_way)
+def open_next_cluster(cluster_cash, clusters, count_of_values):
+    cluster_to_open = max(clusters)
+    clusters.remove(cluster_to_open)
+    clusters.append(cluster_cash[int(cluster_to_open) - count_of_values, 0] )
+    clusters.append(cluster_cash[int(cluster_to_open) - count_of_values, 1] )
+    return clusters
+
+def find_nearest_node(coords_node, houses_id, obj_id):
+    buffer = []
+    min_dist = float('inf')
+    for node_id  in G.nodes():
+        check_min = (nodes[node_id][0] - coords_node[0])**2 + (nodes[node_id][1] - coords_node[1])**2
+        if check_min < min_dist and node_id not in houses_id and houses_id not in obj_id:
+            min_dist = check_min
+            buffer.append(node_id)
+            if len(buffer) > len(houses_id) + len(obj_id) + 5:
+                buffer = buffer[2:]
+    return(buffer[-1])     
+
+def get_clusters_info_task(cluster_cash, some_houses, nodes, obj_id):
+    clusters = [int(cluster_cash[-1,0]), int(cluster_cash[-1,1])]
+    clusters_info_2 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, some_houses), clusters))
+    clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
+    clusters_info_3 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, houses_id), clusters))
+    clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
+    clusters = open_next_cluster(cluster_cash, clusters, len(some_houses))
+    clusters_info_5 = list(map(lambda x: get_cluster_info(x, cluster_cash, some_houses, nodes, obj_id, houses_id), clusters))
+    return clusters_info_2, clusters_info_3,clusters_info_5
+
+def draw_clusters(G,nodes, clusters_info, filename=''):
+    colors = ['b','g','r','#FF00FF','c']
+    for cluster_number in range(len(clusters_info)):
+        is_draw = cluster_number == 0
+        save_filename = '' if cluster_number != len(clusters_info) - 1 else filename 
+        draw_ways_on_graph(G,nodes, clusters_info[cluster_number]['tree'], filename=save_filename, draw_network=is_draw, way_color=colors[cluster_number],node_size=8)
+        
+def count_centroids_tree_from_cluster(G,clusters_info, obj_id):
+    centroids = [str(cluster_info['centroid_id']) for cluster_info in clusters_info]
+    return get_tree_and_sum(G, str(obj_id), centroids)
+
+def clusters_info_to_routes(clusters_info):
+    routes_clusters_str = reduce(lambda x,y: x + y, list(map(lambda x: [v['way'] for k,v in x['tree'].items()], clusters_info)))
+    return list(map(lambda x: list(map(lambda y: int(y), x)), routes_clusters_str))
+
+def cluster_info_to_csv(clusters_info):
+    data = clusters_info_to_routes(clusters_info)
+    for cluster in clusters_info:
+        tree_data = [cluster['tree_sum'], cluster['tree_min_sum']]
+        data.append(tree_data)
+        data.append([cluster['centroid_id']])
+        data.append(cluster["nodes"])
+    return data
+
+def dijkstra_to_routes(res):
+    routes_int = [res[key]['way'] for key in res]
+    return list(map(lambda x: [int(value) for value in x], routes_int))
+
+def tree_info_to_csv(tree, tree_sum, tree_min_sum):
+    data = dijkstra_to_routes(tree)
+    data.append([tree_sum])
+    data.append([tree_min_sum])
+    return data
+
+def cluster_cash_to_csv(cluster_cash, count_of_items):
+    data = cluster_cash.copy()
+    for i in range(len(cluster_cash)):
+        if cluster_cash[i,0] < count_of_items:
+            data[i,0] = some_houses[int(data[i,0])]
+        if cluster_cash[i,1] < count_of_items:
+            data[i,1] = some_houses[int(data[i,1])]
+    return data
