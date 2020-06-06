@@ -13,26 +13,9 @@ from scipy.cluster.hierarchy import dendrogram, linkage
 import collections
 
 #on file upload
-def create_graph_from_osm(obj, osm_file): 
-    f = open('houses.txt', 'r')
-    houses_id = [house[:-1] for house in f.readlines()]
-    f.close()
-    obj_id = []
-    if obj == 'medicine':
-        f = open('med.txt', 'r')
-        obj_id = [med[:-1] for med in f.readlines()]   
-        f.close()
-    elif obj == 'firewatch':
-        f = open('firewatch.txt', 'r')
-        obj_id = [firewatch[:-1] for firewatch in f.readlines()]   
-        f.close()
-    elif obj == 'market':
-        f = open('market.txt', 'r')
-        obj_id = [market[:-1] for market in f.readlines()]   
-        f.close()
-    else:
-        print('wrong structure')
-
+def create_graph_from_osm(obj,start_mode = 'off',osm_mod_file='data/graph.osm',osm_file='data/orig_graph.osm'):
+    if start_mode == 'on':
+        osm_file = osm_mod_file
     G = nx.DiGraph()
     context = et.iterparse(osm_file, events=('end',), tag='node')
     nodes = {}
@@ -88,7 +71,7 @@ def create_graph_from_osm(obj, osm_file):
             _id = child.get('ref')
             nodes_list.append(_id)
         #Добавляем ребра с весами в список смежности
-        if False:#oneway == 1:
+        if oneway == 1:
             for i in range(len(nodes_list)-1):
                 #Добавляем вершины
                 from_node, to_node = nodes_list[i:i+2]
@@ -107,7 +90,8 @@ def create_graph_from_osm(obj, osm_file):
     G.add_edges_from(edges)    
     
     #Удалим лишнее
-    for node in nodes:
+    node_list = list(G.nodes()).copy()
+    for node in node_list:
         if (len(list(G.successors(node))) == 1 or len(list(G.predecessors(node)))) == 1 and G.degree(node) != 1:
             remove_list,add_list = [],[]
             for from_node in G.predecessors(node):
@@ -121,22 +105,71 @@ def create_graph_from_osm(obj, osm_file):
     
     remove_nodes = [node for node in G.nodes() if int(G.degree(node)) == 0]
     
+    def nearest_node_of_way(read_file,write_file,remove_nodes):        
+            f = open(read_file, 'r')
+            list_id = [elem[:-1] for elem in f.readlines()]
+            f.close()
+            nearest_nodes_id = set()
+            for _id in list_id:
+                nni = nearest_node_id(_id,remove_nodes)
+                nearest_nodes_id.add(nni)
+            with open(write_file,'w',newline='') as f:      
+                s = '\n'.join(list(nearest_nodes_id))
+                f.write(s+' ')
+                
+    if start_mode == 'on':
+        nearest_node_of_way('data/orig_files/orig_houses.txt','data/houses.txt',remove_nodes)
+        nearest_node_of_way('data/orig_files/orig_med.txt','data/med.txt',remove_nodes)
+        nearest_node_of_way('data/orig_files/orig_fire_station.txt','data/fire_station.txt',remove_nodes)
+        nearest_node_of_way('data/orig_files/orig_retail.txt','data/retail.txt',remove_nodes)
+        return create_graph_from_osm()
+    
+    def increase_dist(G,filename):
+        f = open(filename, 'r')
+        list_id = [elem[:-1] for elem in f.readlines()]
+        f.close()
+        for _id in list_id:
+            w = 1
+            for node in G.successors(_id):
+                G[_id][node]['weight'] *= w
+            for node in G.predecessors(_id):
+                G[node][_id]['weight'] *= w  
+        return list_id    
 
+    houses_id = increase_dist(G,'data/houses.txt')
+    med_id = increase_dist(G,'data/med.txt')
+    fire_station_id = increase_dist(G,'data/fire_station.txt')
+    retail_id = increase_dist(G,'data/retail.txt')
+    obj_id = []
+    if obj == 'med':
+        obj_id = med_id
+    elif obj == 'fire_station':
+        obj_id = fire_station_id
+    elif obj == 'retail':
+        obj_id = retail_id
+    else:
+        print('wrong input')
     G.remove_nodes_from(remove_nodes)
-
     return G,houses_id,obj_id,nodes
 
-#on params change
-def set_weights(G,obj_id,obj_max_weight):
-    for o_id in obj_id:
+def increase_dist(G,filename,obj_max_weight):
+    f = open(filename, 'r')
+    list_id = [elem[:-1] for elem in f.readlines()]
+    f.close()
+    for _id in list_id:
         w = 1 + random()*(obj_max_weight-1)
-        for node in G.successors(o_id):
-            G[o_id][node]['weight'] *= w
-        for node in G.predecessors(o_id):
-            G[node][o_id]['weight'] *= w    
+        for node in G.successors(_id):
+            G[_id][node]['weight'] *= w
+        for node in G.predecessors(_id):
+            G[node][_id]['weight'] *= w  
+    return list_id 
+    
+#on params change
+def set_weights(G,obj_file,obj_max_weight):
+    increase_dist(G,obj_file,obj_max_weight)   
 
-def dijkstra(G,_from,to_list = 'empty', max_dist = None):
-    if to_list == 'empty':
+def dijkstra(G,_from,to_list = None, max_dist = None):
+    if to_list == None:
         to_list = list(G.nodes())
     
     push, pop = heappush, heappop  
@@ -155,7 +188,7 @@ def dijkstra(G,_from,to_list = 'empty', max_dist = None):
         for u in G.successors(v):
             _weight = checked[v]['weight'] + G[v][u]['weight']
             if max_dist is not None:
-                if vu_dist > max_dist:
+                if _weight > max_dist:
                     continue
             if u not in checked:
                 checked[u] = {'weight': _weight, 'way': checked[v]['way'] + [u]}
@@ -181,6 +214,7 @@ def write_dijkstra_csv(G,filename,from_list,to_list):
         f.write('from,to,way_weight,way\n')
         for _from in from_list:
             a = dijkstra(G,_from,to_list)
+            #a = {k:v for k,v in a.items() if v["weight"] != float('inf')}
             for _to in to_list:
                 if _to in a.keys():
                     s = _from + ',' + _to + ',' + str(a[_to]['weight'])
@@ -236,14 +270,17 @@ def search_min_ways_there_and_back(min_ways,from_list,to_list):
     for _from in from_list:
         for _to in to_list:
             if _from != _to:
-                if _from in min_ways.keys() and _to in min_ways[_from].keys() and _to in min_ways.keys() and _from in min_ways[_to].keys():
-                    if min_way.get(_from) == None:
-                        min_way[_from] = {'to':_to,'weight':min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight'],'way':min_ways[_from][_to]['way'],'way_back':min_ways[_to][_from]['way']}
-                    elif min_way[_from]['weight'] > min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']:
-                        min_way[_from]['to'] = _to
-                        min_way[_from]['weight'] = min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']
-                        min_way[_from]['way'] =  min_ways[_from][_to]['way']
-                        min_way[_from]['way_back'] = min_ways[_to][_from]['way']
+                if _from in min_ways.keys() and _to in min_ways[_from].keys():
+                    if _to in min_ways.keys() and _from in min_ways[_to].keys():
+                        if min_way.get(_from) == None:
+                            min_way[_from] = {'to':_to,\
+                                              'weight':min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight'],\
+                                              'way':min_ways[_from][_to]['way'],'way_back':min_ways[_to][_from]['way']}
+                        elif min_way[_from]['weight'] > min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']:
+                            min_way[_from]['to'] = _to
+                            min_way[_from]['weight'] = min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']
+                            min_way[_from]['way'] =  min_ways[_from][_to]['way']
+                            min_way[_from]['way_back'] = min_ways[_to][_from]['way']
     return min_way
 
 def search_near_ways(min_ways,max_weight,from_list,to_list):
@@ -259,10 +296,11 @@ def search_near_ways_there_and_back(min_ways,max_weight,from_list,to_list):
     near_ways = []
     for _from in from_list:
         for _to in to_list:
-            if _from in min_ways.keys() and _to in min_ways[_from].keys() and _to in min_ways.keys() and _from in min_ways[_to].keys():
-                weight = min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']
-                if weight <= max_weight and _from != _to:
-                    near_ways.append([_from, _to, weight, min_ways[_from][_to]['way'], min_ways[_to][_from]['way']])
+            if _from in min_ways.keys() and _to in min_ways[_from].keys() and _to in min_ways.keys():
+                if _from in min_ways[_to].keys():
+                    weight = min_ways[_from][_to]['weight'] + min_ways[_to][_from]['weight']
+                    if weight <= max_weight and _from != _to:
+                        near_ways.append([_from, _to, weight, min_ways[_from][_to]['way'], min_ways[_to][_from]['way']])
     return near_ways
 
 def search_minmax_way(min_ways,from_list,to_list):
@@ -390,8 +428,9 @@ def draw_graph(G,nodes,filename=''):
         fig.clear()
 
 def load_object(G,houses_id,obj_id,nodes,obj,osm_file='orig_graph.osm'):
-    print('loading')
+    print('Start loading...')
     G,houses_id,obj_id,nodes = create_graph_from_osm(obj,osm_file)
+    print('Loading complete!')
     draw_graph(G,nodes)
 
 def run_dijkstra(G,from_list,to_list):
@@ -404,10 +443,10 @@ def run_culc(G,houses_id,obj_id,from_list,to_list,h_count,obj_count,obj_weight):
     set_weights(G,obj_id,obj_weight)
     from_list = sample(houses_id, h_count)
     to_list = sample(obj_id, obj_count)
-    print('start')
+    print('Start loading...')
     write_dijkstra_csv(G,'dijkstra1',from_list,to_list)
     write_dijkstra_csv(G,'dijkstra2',to_list,from_list)
-    print('calculated')
+    print('Loading complete!')
     return from_list, to_list
     
 #clusters
